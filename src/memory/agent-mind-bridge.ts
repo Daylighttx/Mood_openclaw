@@ -216,6 +216,8 @@ export async function mindOnInboundMessage(
   try {
     const mind = getOrCreateMind(agentId);
     await mind.onInteraction(content, senderName ? [senderName] : []);
+    // Wait for any in-flight heartbeat tick to finish before resetting its counters.
+    await mind.awaitTickGate();
     mind.getThinkingLoop().unansweredProactiveCount = 0;
     mind.getThinkingLoop().userLastMessageAt = Date.now();
     mind.getThinkingLoop().lastUserMessage = content.slice(0, 200);

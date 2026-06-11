@@ -69,6 +69,11 @@ export class AgentMind {
   private conversationCountAtLastRefresh: number = 0;
   private lastPersonalityAdaptAt: number = 0;
   private lastVacuumAt: number = 0;
+  /** Serializes tick() and inbound state resets to prevent stale counter writes. */
+  private _tickGate: Promise<void> = Promise.resolve();
+
+  /** Resolve for the current tick gate. Only set while tick() holds the gate. */
+  private _releaseTickGate: (() => void) | null = null;
 
   constructor(config: AgentMindConfig) {
     this.agentId = config.agentId;
@@ -118,6 +123,12 @@ export class AgentMind {
     return this.llmProvider;
   }
 
+  /** Wait for any in-flight tick() to finish before resetting state.
+   *  Call from the inbound-message path to avoid racing with heartbeat ticks. */
+  async awaitTickGate(): Promise<void> {
+    await this._tickGate;
+  }
+
   getPlanner(): Planner {
     return this.planner;
   }
@@ -162,6 +173,10 @@ export class AgentMind {
   }
 
   async tick(): Promise<ThoughtAction | null> {
+    // Serialize with any previous tick and block inbound resets during LLM call.
+    await this._tickGate;
+    this._tickGate = new Promise<void>((r) => { this._releaseTickGate = r; });
+    try {
     const now = Date.now();
 
     // Daily maintenance: prune stale low-importance memories to prevent unbounded DB growth.
@@ -236,6 +251,10 @@ export class AgentMind {
     });
 
     return action;
+    } finally {
+      this._releaseTickGate?.();
+      this._releaseTickGate = null;
+    }
   }
 
   async searchMemories(
@@ -343,61 +362,21 @@ ${convLines}
       nightSocCap: cfg.nightSocCap ?? 0.5,
     };
 
-    const prompt = `你是 ${this.personality.name}。你在回顾自己最近的行为模式，决定是否需要调整自己的性格参数。
+    const prompt = `你是 ${this.personality.name}。回顾最近的互动，决定是否需要调整 4 个性格参数。
 
-## 你的情绪系统工作原理
+可调参数（当前值 → 调整方向和含义）:
+- sCurveMultiplier: ${params.sCurveMultiplier} (0.03~0.15) — 越高→粘人, 越低→独立
+- sCurvePeakMinutes: ${params.sCurvePeakMinutes} (10~90) — 越大→慢热, 越小→急性子
+- neglectCuriosityPenalty: ${params.neglectCuriosityPenalty} (0.05~0.6) — 越高→敏感型, 越低→钝感型
+- nightSocCap: ${params.nightSocCap} (0.2~0.8) — 越低→规律作息, 越高→夜猫子
 
-你有 4 个情绪维度（0到1之间）:
-- sociability（社交欲）：想不想跟人说话
-- curiosity（好奇心）：对新信息感不感兴趣
-- energy（精力）：累不累
-- concern（担忧）：有没有挂念对方
-
-### 规则 1: S曲线社交欲
-闲置越久，社交欲先涨后跌。峰值在 sCurvePeakMinutes 分钟，涨幅由 sCurveMultiplier 控制。
-- sCurveMultiplier 高 → 闲置后很快想说话 → 表现为"粘人"
-- sCurveMultiplier 低 → 闲置后慢悠悠 → 表现为"独立"
-- 当前值: ${params.sCurveMultiplier}（默认0.08，范围0.03~0.15）
-
-### 规则 2: S曲线峰值时机
-- sCurvePeakMinutes 大 → 需要等待更久才最想说话
-- sCurvePeakMinutes 小 → 很快就达到社交欲望高峰
-- 当前值: ${params.sCurvePeakMinutes}（默认30分钟，范围10~90）
-
-### 规则 3: 被冷落惩罚
-当你主动发了消息但对方1小时没回，好奇心会额外衰减。
-- neglectCuriosityPenalty 高 → 被冷落时很快失去兴趣 → "敏感型"
-- neglectCuriosityPenalty 低 → 被冷落也不太在意 → "钝感型"
-- 当前值: ${params.neglectCuriosityPenalty}（默认0.3，范围0.05~0.6）
-
-### 规则 4: 深夜社交帽
-凌晨0-6点社交欲被压在 nightSocCap 以下。
-- nightSocCap 低 → 深夜几乎不说话 → "规律作息"
-- nightSocCap 高 → 深夜也能保持社交欲 → "夜猫子"
-- 当前值: ${params.nightSocCap}（默认0.5，范围0.2~0.8）
-
-### 其他重要规则（不可调，仅供参考）
-- 每次互动后，社交欲×0.85（暂时满足），好奇心×0.95（短暂降低）
-- 闲置超过30分钟，好奇心开始缓慢下降（"没人聊就无聊"）
-- 闲置超过2小时，担忧开始上升（"ta怎么不理我了"）
-- 精力白天稳定，深夜恢复（凌晨0-6点恢复速度2倍）
-- 极度担忧(>0.8)时强制降低社交欲，模拟"焦虑时不想社交"
-- 对方没回复超过3次 → 永远不再主动发消息
-
-## 近期互动
+近期互动（最近 10 条）:
 ${recentMems.slice(0, 10).map((m, i) => `${i + 1}. ${m.content}`).join("\n")}
 
-当前情绪: ${state.moodDescription}
-今日主动消息数: ${this.thinkingLoop.getProactiveToday()}
+当前情绪: ${state.moodDescription} | 今日主动消息: ${this.thinkingLoop.getProactiveToday()}
 
-## 决策要求
-
-1. 每个参数调整不超过当前值的 ±20%（系统会自动限制在±30%以内）
-2. 只在有明确理由时调整，否则 changed=false
-3. 考虑长期趋势而非单次事件
-4. 同一批调整不要超过2个参数
-
-只输出 JSON（不要markdown）:
+规则: 只改有明显需求的参数，每批不超过 2 个，单次调幅 ±20%（代码会硬限制在 ±30%）。犹豫就选 changed=false。
+只输出 JSON（不要 markdown）:
 { "changed": true或false, "changes": { "sCurveMultiplier": 数字, ... }, "reason": "1-2句中文说明为什么调整" }`;
 
     try {

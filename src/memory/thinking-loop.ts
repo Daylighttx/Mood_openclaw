@@ -165,61 +165,28 @@ export class ProactiveThinkingLoop {
     }
 
     const reflections = store.listMemories({ type: "reflection", limit: 3 });
-    const reflectionLines = reflections.length > 0
-      ? ["Recent reflections:",
-          ...reflections.map((m) =>
-            `- ${m.content}`)]
-      : [];
 
     const lastInteractionAt = mood.getLastInteractionAt();
+    const personalityPrompt = buildPersonalityPrompt(personality);
     const timeSinceLastInteraction = lastInteractionAt
       ? this.formatTimeAgo(Date.now() - lastInteractionAt)
       : "never";
 
-    const personalityPrompt = buildPersonalityPrompt(personality);
-
     const decisionPrompt = `You are ${personality.name}, ${personality.identity}.
-${personality.language ? `IMPORTANT: You MUST respond in ${personality.language}. All your messages and your "content" field must be in ${personality.language}.` : ""}
-Your interests: ${personality.interests?.join(", ") ?? "general conversation"}
-Your conversation style: ${personality.conversationStyle ?? "natural and friendly"}
+Language: ${personality.language ?? "English"} | Mood: ${moodDescription} (curiosity:${moodState.curiosity.toFixed(2)} soc:${moodState.sociability.toFixed(2)} energy:${moodState.energy.toFixed(2)})
+Time: ${new Date().toLocaleString("zh-CN")} | Proactive today: ${this.proactiveToday} | Last interaction: ${timeSinceLastInteraction}
 
-Current time: ${new Date().toLocaleString("zh-CN")}
-Current mood: ${moodDescription}
-Curiosity: ${moodState.curiosity.toFixed(2)}, Sociability: ${moodState.sociability.toFixed(2)}, Energy: ${moodState.energy.toFixed(2)}
-
-Recent memories (most recent first):
-${recentContext || "(no recent memories)"}
-
-${reflectionLines.join("\n")}
+Recent context:
+${recentContext || "(none)"}
+${reflections.length > 0 ? "Reflections: " + reflections.map(m => m.content).join("; ") : ""}
 
 Last user message: "${this.lastUserMessage}"
-${this.lastAgentReply
-  ? `Your last reply: "${this.lastAgentReply}"`
-  : ""}
-Last interaction: ${timeSinceLastInteraction}
+${this.lastAgentReply ? `Your last reply: "${this.lastAgentReply}"` : ""}
+${this.recentProactiveContents.length > 0 ? `ANTI-REPEAT — you recently said:\n${this.recentProactiveContents.map(c => `- "${c.content}"`).join("\n")}` : ""}
+${this.unansweredProactiveCount > 0 && lastInteractionAt > 0 ? `User hasn't replied to your last ${this.unansweredProactiveCount} messages — prefer idle.` : ""}
 
-You have already sent ${this.proactiveToday} proactive messages today.
-${this.recentProactiveTopics.length > 0
-  ? `Recent topics you already discussed: ${this.recentProactiveTopics.map(t => t.topic).join(" | ")}`
-  : ""}
-${this.recentProactiveContents.length > 0
-  ? `You recently said:\n${this.recentProactiveContents.map(c => `- "${c.content}"`).join("\n")}\nDO NOT repeat these same sentiments.`
-  : ""}
-${this.unansweredProactiveCount > 0 && lastInteractionAt > 0
-  ? `IMPORTANT: You have sent ${this.unansweredProactiveCount} messages since the user last replied (${timeSinceLastInteraction} ago). They may be busy or away. Unless something urgent happens, you should stay quiet.`
-  : ""}
-
-Based on your personality, current mood, and these memories, what would you like to do right now?
-Important: only choose "message" if you have something TRULY NEW to say that hasn't been discussed recently.
-If your thoughts are similar to previous topics, prefer "reflect" or "idle" instead.
-If the user hasn't replied to your recent messages, strongly prefer "idle".
-Options:
-A) Send a message to the user (only if you have genuinely new thoughts)
-B) Reflect on recent memories (explain what you want to think about)
-C) Do nothing — it's okay to just observe quietly (explain why)
-
-Respond ONLY with a JSON object (no markdown, no explanation):
-{ "action": "message" | "reflect" | "idle", "reason": "brief explanation", "topic": "what the message or reflection would be about", "content": "IF action is message: the actual message text to send (natural, 1-3 sentences in the language you speak)" }`;
+Decide: message (only if truly new), reflect, or idle. JSON only:
+{ "action": "message"|"reflect"|"idle", "reason": "...", "topic": "...", "content": "IF message: 1-3 sentence text" }`;
 
     try {
       thinkLog.info("--- LLM PROMPT ---: " + decisionPrompt.slice(0, 3000));

@@ -136,17 +136,12 @@ describe("AgentMindBridge", () => {
 
     it("低精力时包含内在状态提示", async () => {
       const agentId = "sp-tired";
-      getOrCreateMind(agentId);
-      // 多次心跳消耗精力
-      for (let i = 0; i < 50; i++) {
-        await mindOnHeartbeat(agentId);
-      }
+      const mind = getOrCreateMind(agentId);
+      // Force energy below the 0.3 threshold that triggers the "累了" hint.
+      mind.getMood().applyDelta({ energy: -0.75 });
 
       const section = buildMindSystemPromptSection(agentId);
-      // 精力低时应该提示"累了"
-      if (section.length > 0) {
-        expect(section).toContain("内在");
-      }
+      expect(section).toContain("内在");
     });
   });
 

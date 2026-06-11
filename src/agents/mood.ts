@@ -137,7 +137,9 @@ export class AgentMood {
 
     const now = Date.now();
     this.lastUpdatedAt = now;
-    this.lastInteractionAt = now;
+    // Set to 0 so shouldProactivelyMessage doesn't see a fake "just interacted" cooldown.
+    // onInteraction() will set this to now on the first real inbound message.
+    this.lastInteractionAt = 0;
 
     this.state = {
       curiosity: initialState?.curiosity ?? baselines.curiosity,
