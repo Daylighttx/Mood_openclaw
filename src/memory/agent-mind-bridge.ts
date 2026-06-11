@@ -1,12 +1,13 @@
 import path from "node:path";
 import fs from "node:fs";
-import { AgentMind, type AgentMindConfig, type AgentMindState } from "../memory/agent-mind.js";
+import { AgentMind, type AgentMindConfig, type AgentMindState } from "./agent-mind.js";
 import type { AgentPersonality } from "../agents/personality.js";
 import { DEFAULT_TRAITS } from "../agents/personality.js";
-import type { ThoughtAction } from "../memory/thinking-loop.js";
-import type { ThinkingLoopConfig } from "../memory/thinking-loop.js";
+import type { ThoughtAction } from "./thinking-loop.js";
+import type { ThinkingLoopConfig } from "./thinking-loop.js";
 import type { MoodConfig } from "../agents/mood.js";
 import { createMindLLMProvider, resolveMindLLMConfig, type MindLLMProvider } from "./llm-provider.js";
+import { OpenAIEmbeddingProvider, type EmbeddingProvider } from "./embeddings.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 
 const log = createSubsystemLogger("agent-mind").child("bridge");
@@ -172,11 +173,22 @@ export function getOrCreateMind(agentId: string, personality?: Partial<AgentPers
   const llmConfig = resolveMindLLMConfig(rawCfg as Record<string, unknown>);
   const llmProvider = createMindLLMProvider(llmConfig);
 
+  // Reuse the thinking LLM's API key for true semantic embeddings.
+  // Falls back to SimpleEmbeddingProvider when no key is configured.
+  let embedder: EmbeddingProvider | undefined;
+  if (llmConfig?.apiKeyEnv && process.env[llmConfig.apiKeyEnv]) {
+    embedder = new OpenAIEmbeddingProvider({
+      apiKey: process.env[llmConfig.apiKeyEnv]!,
+      baseUrl: llmConfig.baseUrl,
+    });
+  }
+
   const config: AgentMindConfig = {
     agentId,
     dbPath: resolveMindDbPath(agentId),
     personality: merged,
     llmProvider: llmProvider.isAvailable() ? llmProvider : undefined,
+    embedder,
     ...(mindCfg?.moodConfig ? { moodConfig: mindCfg.moodConfig as Partial<MoodConfig> } : {}),
     ...(mindCfg?.thinkingConfig ? { thinkingConfig: mindCfg.thinkingConfig as Partial<ThinkingLoopConfig> } : {}),
   };
@@ -211,7 +223,7 @@ export async function mindOnInboundMessage(
     mind.getThinkingLoop().suppressedCount = 0;
     mind.getMood().markUserReplied();
     mind.markRelationshipActive();
-    (mind as unknown as Record<string, unknown>).lastPersonalityAdaptAt ??= Date.now();
+    mind.markPersonalityActive();
     const state = mind.getState();
     appendEvent({
       event: "inbound_stored",
@@ -268,7 +280,10 @@ export async function mindOnHeartbeat(agentId: string): Promise<{
     }
 
     try {
-      writeHeartbeatStateFile(agentId, state, action);
+      // Fire-and-forget async write — heartbeat state is best-effort.
+      writeHeartbeatStateFile(agentId, state, action).catch(
+        (err) => { log.warn("heartbeat state file write failed", { agentId, error: String(err) }); },
+      );
     } catch {
       // best-effort
     }
@@ -288,10 +303,9 @@ function writeHeartbeatStateFile(
   agentId: string,
   state: AgentMindState,
   action: ThoughtAction | null,
-): void {
+): Promise<void> {
   const base = process.env.OPENCLAW_HOME ?? process.env.HOME ?? "/tmp";
   const dir = path.join(base, ".openclaw", "mind");
-  fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "heartbeat-state.json");
 
   const payload = {
@@ -318,7 +332,9 @@ function writeHeartbeatStateFile(
       : null,
   };
 
-  fs.writeFileSync(file, JSON.stringify(payload, null, 2), "utf-8");
+  return fs.promises.mkdir(dir, { recursive: true }).then(() =>
+    fs.promises.writeFile(file, JSON.stringify(payload, null, 2), "utf-8"),
+  );
 }
 
 export function buildMindSystemPromptSection(agentId: string): string {

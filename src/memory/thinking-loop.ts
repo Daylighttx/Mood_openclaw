@@ -1,6 +1,6 @@
 import type { SemanticMemoryStore } from "./store.js";
 import type { AgentPersonality } from "../agents/personality.js";
-import type { AgentMood } from "../agents/mood.js";
+import type { AgentMood, MoodState } from "../agents/mood.js";
 import { buildPersonalityPrompt } from "../agents/personality.js";
 import type { MindLLMProvider } from "./llm-provider.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
@@ -74,8 +74,7 @@ export class ProactiveThinkingLoop {
     this._lastThoughtContent = null;
   }
 
-  shouldActivate(mood: AgentMood, unansweredCount: number = 0): boolean {
-    const moodState = mood.getMood();
+  shouldActivate(moodState: MoodState, unansweredCount: number = 0): boolean {
     if (moodState.energy < 0.15) {
       return false;
     }
@@ -120,8 +119,10 @@ export class ProactiveThinkingLoop {
       return null;
     }
 
-    if (!this.shouldActivate(mood, this.unansweredProactiveCount)) {
-      const moodState = mood.getMood();
+    // Cache mood state once — shouldActivate and the log below must agree.
+    const moodState = mood.getMood();
+
+    if (!this.shouldActivate(moodState, this.unansweredProactiveCount)) {
       const thinkingDrive =
         moodState.curiosity * 0.4 + moodState.sociability * 0.3 + moodState.energy * 0.3;
       thinkLog.info("thought skipped: mood too calm", {
@@ -411,7 +412,7 @@ Respond ONLY with a JSON object (no markdown, no explanation):
       const quoIdx = stripped.indexOf(`"${action}"`);
       if (quoIdx < 0) continue;
 
-      const json = this.extractJsonAround(stripped, quoIdx);
+      const json = this.extractBracketJson(stripped, quoIdx);
       if (!json) continue;
 
       try {
@@ -437,12 +438,18 @@ Respond ONLY with a JSON object (no markdown, no explanation):
     return null;
   }
 
-  private extractJsonAround(text: string, startIdx: number): string | null {
-    let open = text.lastIndexOf("{", startIdx);
-    let close = text.indexOf("}", startIdx);
-    if (open < 0 || close < 0) return null;
-    close = text.indexOf("}", close + 1) > 0 ? text.indexOf("}", close + 1) : close;
-    return text.substring(open, close + 1);
+  /** 用花括号计数找到从 action 位置开始的最小闭合 JSON 对象。
+   * 比 indexOf("}") 更稳健——处理 reason/content 字段值里嵌套的 }。 */
+  private extractBracketJson(text: string, startIdx: number): string | null {
+    const open = text.lastIndexOf("{", startIdx);
+    if (open < 0) return null;
+    let depth = 0;
+    for (let i = open; i < text.length; i++) {
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") depth--;
+      if (depth === 0) return text.slice(open, i + 1);
+    }
+    return null;
   }
 
   private formatRecentMemories(

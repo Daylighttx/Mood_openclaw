@@ -1,6 +1,6 @@
 import type { SemanticMemory, SemanticMemory as MemoryRecord } from "./types.js";
 import { SemanticMemoryStore } from "./store.js";
-import { SimpleEmbeddingProvider } from "./embeddings.js";
+import { SimpleEmbeddingProvider, type EmbeddingProvider } from "./embeddings.js";
 import { MemorySearcher, type MemorySearchResult } from "./search.js";
 import { createRuleBasedScorer, createLLMScorer, type ImportanceScorer } from "./importance.js";
 import * as fs from "node:fs";
@@ -34,6 +34,7 @@ export interface AgentMindConfig {
   importanceScorer?: ImportanceScorer;
   moodConfig?: Partial<MoodConfig>;
   llmProvider?: MindLLMProvider;
+  embedder?: EmbeddingProvider;
 }
 
 export interface AgentMindState {
@@ -67,6 +68,7 @@ export class AgentMind {
   private lastRelationshipRefreshAt: number = 0;
   private conversationCountAtLastRefresh: number = 0;
   private lastPersonalityAdaptAt: number = 0;
+  private lastVacuumAt: number = 0;
 
   constructor(config: AgentMindConfig) {
     this.agentId = config.agentId;
@@ -84,7 +86,7 @@ export class AgentMind {
         ? createLLMScorer(this.llmProvider)
         : createRuleBasedScorer());
 
-    this.embedder = new SimpleEmbeddingProvider();
+    this.embedder = config.embedder ?? new SimpleEmbeddingProvider();
 
     this.searcher = new MemorySearcher(this.store, this.embedder);
 
@@ -160,16 +162,37 @@ export class AgentMind {
   }
 
   async tick(): Promise<ThoughtAction | null> {
+    const now = Date.now();
+
+    // Daily maintenance: prune stale low-importance memories to prevent unbounded DB growth.
+    if (now - this.lastVacuumAt > 24 * 60 * 60 * 1000) {
+      try {
+        const removed = this.store.vacuumStale(500, 7);
+        if (removed > 0) {
+          amLog.info("vacuum: removed stale memories", { agentId: this.agentId, removed });
+        }
+      } catch (err) {
+        amLog.warn("vacuum failed", { agentId: this.agentId, error: String(err) });
+      }
+      this.lastVacuumAt = now;
+    }
+
     if (this.planner.needsDailyUpdate()) {
-      this.planner.updateDailyGoals(this.store, this.llmProvider).catch(() => {});
+      this.planner.updateDailyGoals(this.store, this.llmProvider).catch(
+        (err) => { amLog.warn("daily goals update failed", { agentId: this.agentId, error: String(err) }); },
+      );
     }
 
     if (this.llmProvider && this.shouldRefreshRelationship()) {
-      this.refreshRelationship(this.llmProvider).catch(() => {});
+      this.refreshRelationship(this.llmProvider).catch(
+        (err) => { amLog.warn("relationship refresh failed", { agentId: this.agentId, error: String(err) }); },
+      );
     }
 
     if (this.llmProvider && this.shouldAdaptPersonality()) {
-      this.adaptPersonality(this.llmProvider).catch(() => {});
+      this.adaptPersonality(this.llmProvider).catch(
+        (err) => { amLog.warn("personality adapt failed", { agentId: this.agentId, error: String(err) }); },
+      );
     }
 
     const action = await this.thinkingLoop.prepareAction(
@@ -289,6 +312,13 @@ ${convLines}
     if (this.lastRelationshipRefreshAt === 0) {
       this.lastRelationshipRefreshAt = Date.now();
       this.conversationCountAtLastRefresh = this.store.memoryCount();
+    }
+  }
+
+  /** 标记人格自适应时钟已启动，避免首次 inbound 后立即触发 adaptPersonality。 */
+  markPersonalityActive(): void {
+    if (this.lastPersonalityAdaptAt === 0) {
+      this.lastPersonalityAdaptAt = Date.now();
     }
   }
 

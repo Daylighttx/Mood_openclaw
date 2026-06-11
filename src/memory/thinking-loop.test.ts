@@ -56,17 +56,17 @@ describe("ProactiveThinkingLoop", () => {
   describe("shouldActivate", () => {
     it("activates with social, curious, energetic mood", () => {
       const mood = createSocialMood();
-      expect(loop.shouldActivate(mood)).toBe(true);
+      expect(loop.shouldActivate(mood.getMood())).toBe(true);
     });
 
     it("does not activate with low energy", () => {
       const mood = createLowEnergyMood();
-      expect(loop.shouldActivate(mood)).toBe(false);
+      expect(loop.shouldActivate(mood.getMood())).toBe(false);
     });
 
     it("does not activate with calm mood", () => {
       const mood = createCalmMood();
-      expect(loop.shouldActivate(mood)).toBe(false);
+      expect(loop.shouldActivate(mood.getMood())).toBe(false);
     });
 
     it("respects min interval cooldown", async () => {
@@ -84,8 +84,8 @@ describe("ProactiveThinkingLoop", () => {
       const loop = new ProactiveThinkingLoop({ minIntervalMs: 0 });
       const mood = createSocialMood();
 
-      expect(loop.shouldActivate(mood)).toBe(true);
-      expect(loop.shouldActivate(mood)).toBe(true);
+      expect(loop.shouldActivate(mood.getMood())).toBe(true);
+      expect(loop.shouldActivate(mood.getMood())).toBe(true);
     });
   });
 

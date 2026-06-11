@@ -291,6 +291,19 @@ export class SemanticMemoryStore {
     return row ? Number(row.count) : 0;
   }
 
+  /** 清理陈旧低重要性记忆，保留最近 keepCount 条 + 所有 importance >= minImportance 的记录。 */
+  vacuumStale(keepCount: number = 500, minImportance: number = 7): number {
+    const deletedFutureHack = this.db
+      .prepare(
+        `DELETE FROM semantic_memories WHERE agent_id = ? AND id NOT IN (
+          SELECT id FROM semantic_memories WHERE agent_id = ?
+          ORDER BY created_at DESC LIMIT ?
+        ) AND importance < ?`,
+      )
+      .run(this.agentId, this.agentId, keepCount, minImportance);
+    return deletedFutureHack.changes;
+  }
+
   close(): void {
     this.db.close();
   }
