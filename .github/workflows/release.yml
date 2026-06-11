@@ -1,0 +1,70 @@
+name: Build Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'README_CN.md'
+      - 'DEPLOY.md'
+      - 'PROJECT_REPORT.md'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies (flat layout, no symlinks)
+        run: |
+          rm -f .npmrc
+          echo "node-linker=hoisted" > .npmrc
+          echo "shamefully-hoist=true" >> .npmrc
+          pnpm install --frozen-lockfile
+
+      - name: Verify essential deps
+        run: |
+          echo "=== json5 ==="
+          find node_modules/json5 -name "index.*" -maxdepth 1 | head -2 || echo "MISSING"
+          echo "=== jiti (root-alias dep) ==="
+          find node_modules/jiti -name "*.js" -maxdepth 1 | head -2 || echo "MISSING"
+
+      - name: Build
+        run: pnpm build
+
+      - name: Create deploy package
+        run: |
+          tar -czf openclaw-release.tar.gz \
+            dist/ openclaw.mjs scripts/ package.json pnpm-lock.yaml node_modules/ docs/ patches/
+
+          echo "=== Verifying key deps ==="
+          tar -tzf openclaw-release.tar.gz | grep "node_modules/json5/index" | head -1 || echo "json5 MISSING"
+          tar -tzf openclaw-release.tar.gz | grep "node_modules/jiti/lib" | head -1 || echo "jiti MISSING"
+          echo "=== Verifying template files ==="
+          tar -tzf openclaw-release.tar.gz | grep "docs/reference/templates" | head -14 || echo "templates MISSING"
+          echo "=== Verifying patches ==="
+          tar -tzf openclaw-release.tar.gz | grep "patches/" | head -5 || echo "patches MISSING"
+          echo "Package size: $(du -h openclaw-release.tar.gz | cut -f1)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-release
+          path: openclaw-release.tar.gz
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-${{ github.run_number }}
+          name: Release #${{ github.run_number }}
+          files: openclaw-release.tar.gz

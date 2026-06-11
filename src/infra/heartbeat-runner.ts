@@ -146,6 +146,7 @@ import {
   resolveSystemEventDeliveryContext,
   type SystemEvent,
 } from "./system-events.js";
+import { mindOnHeartbeat, bufferProactiveMessage, hasPendingMessage } from "../memory/agent-mind-bridge.js";
 
 export type HeartbeatDeps = OutboundSendDeps &
   ChannelHeartbeatDeps & {
@@ -1309,6 +1310,10 @@ export async function runHeartbeatOnce(opts: {
   const agentId = normalizeAgentId(
     explicitAgentId || forcedSessionAgentId || resolveDefaultAgentId(cfg),
   );
+
+  // Agent Mind: advance mood/thinking on every heartbeat tick
+  mindOnHeartbeat(agentId).catch(() => {});
+
   const heartbeat = resolveHeartbeatForWake({
     cfg,
     agentId,

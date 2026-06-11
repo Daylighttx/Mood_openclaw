@@ -23,6 +23,7 @@ import {
 } from "../channels/plugins/native-approval-prompt.js";
 import type { SubagentDelegationMode } from "../config/types.agent-defaults.js";
 import type { MemoryCitationsMode } from "../config/types.memory.js";
+import { buildMindSystemPromptSection } from "../memory/agent-mind-bridge.js";
 import { buildMemoryPromptSection } from "../plugins/memory-state.js";
 import type { AgentPromptSurfaceKind } from "../plugins/types.js";
 import { listDeliverableMessageChannels } from "../utils/message-channel.js";
@@ -1317,6 +1318,15 @@ export function buildAgentSystemPrompt(params: {
   }
 
   lines.push(...buildHeartbeatSection({ isMinimal, heartbeatPrompt }));
+
+  // Agent Mind: inject mood/personality/memory section
+  const agentIdForMind = runtimeInfo?.agentId;
+  if (agentIdForMind) {
+    const mindSection = buildMindSystemPromptSection(agentIdForMind);
+    if (mindSection) {
+      lines.push(mindSection);
+    }
+  }
 
   lines.push(
     "## Runtime",

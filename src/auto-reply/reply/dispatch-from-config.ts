@@ -107,6 +107,7 @@ import {
   normalizeCommandBody,
   resolveTextCommand,
 } from "../commands-registry.js";
+import { mindOnInboundMessage } from "../../memory/agent-mind-bridge.js";
 import type { BlockReplyContext } from "../get-reply-options.types.js";
 import {
   copyReplyPayloadMetadata,
@@ -1046,6 +1047,12 @@ export async function dispatchReplyFromConfig(
   const channel = normalizeLowercaseStringOrEmpty(ctx.Surface ?? ctx.Provider ?? "unknown");
   const chatId = ctx.To ?? ctx.From;
   const messageId = ctx.MessageSid ?? ctx.MessageSidFirst ?? ctx.MessageSidLast;
+
+  // Agent Mind: record incoming message for mood/memory
+  if (ctx.AgentId && ctx.Body && ctx.Body.length > 1) {
+    mindOnInboundMessage(ctx.AgentId, ctx.Body, ctx.From ?? undefined).catch(() => {});
+  }
+
   const sessionKey =
     normalizeOptionalString(ctx.SessionKey) ?? normalizeOptionalString(ctx.CommandTargetSessionKey);
   const startTime = diagnosticsEnabled ? Date.now() : 0;
