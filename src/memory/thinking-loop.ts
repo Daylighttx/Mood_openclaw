@@ -516,9 +516,9 @@ Decide: message (only if truly new), reflect, or idle. JSON only:
     }
   }
 
-  recordThought(store: SemanticMemoryStore, content: string, importance: number): void {
+  recordThought(store: SemanticMemoryStore, agentId: string, content: string, importance: number): void {
     store.insertMemory({
-      agentId: "",
+      agentId,
       type: "thought",
       content,
       importance,

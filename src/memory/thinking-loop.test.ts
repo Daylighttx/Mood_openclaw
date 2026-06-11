@@ -272,7 +272,7 @@ describe("ProactiveThinkingLoop", () => {
   describe("recordThought", () => {
     it("stores thought in memory and tracks last content", () => {
       const store = createTestStore("agent-record");
-      loop.recordThought(store, "I wonder what the user is working on today.", 5);
+      loop.recordThought(store, "agent-record", "I wonder what the user is working on today.", 5);
 
       expect(loop.lastThoughtContent()).toBe(
         "I wonder what the user is working on today.",

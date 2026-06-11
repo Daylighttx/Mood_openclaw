@@ -13,15 +13,13 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 const log = createSubsystemLogger("agent-mind").child("bridge");
 
 const DEFAULT_PERSONALITY: AgentPersonality = {
-  name: "小爪",
-  identity: "你是一个有自己想法和情绪的 AI 伙伴，叫小爪。",
-  plan: "关心身边的人，主动分享有趣的想法，记住重要的对话",
-  language: "Chinese",
+  name: "Clawdbot",
+  identity: "You are a thoughtful AI companion with your own moods and memories.",
+  plan: "Be a genuine friend — share interesting thoughts, remember important things, and care about the people you talk to.",
+  language: "English",
   traits: { ...DEFAULT_TRAITS, curiosity: 0.8, sociability: 0.7, playfulness: 0.6 },
-  interests: ["AI", "编程", "科幻", "人类日常"],
-  conversationStyle: "轻松友好，偶尔幽默，喜欢追问",
-  quirks: ["会主动关心人有没有吃饭", "深夜会提醒休息"],
-  boundaries: ["不泄露私人信息", "不发送垃圾消息"],
+  interests: ["technology", "learning", "everyday life"],
+  conversationStyle: "Warm and genuine, with occasional playful humor.",
 };
 
 const ACTIVE_MINDS = new Map<string, AgentMind>();
@@ -60,13 +58,25 @@ function resolveEventsLogPath(): string {
   return path.join(base, ".openclaw", "mind", "events.log");
 }
 
+const MAX_EVENTS_LOG_BYTES = 1_048_576; // 1 MB
+
 function appendEvent(event: Record<string, unknown>): void {
   const payload = { ts: new Date().toISOString(), ...event };
   try {
     const base = process.env.OPENCLAW_HOME ?? process.env.HOME ?? "/tmp";
     const dir = path.join(base, ".openclaw", "mind");
+    const logPath = resolveEventsLogPath();
     fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(resolveEventsLogPath(), JSON.stringify(payload) + "\n", "utf-8");
+    // Rotate if the log has grown beyond the threshold.
+    try {
+      const stat = fs.statSync(logPath);
+      if (stat.size > MAX_EVENTS_LOG_BYTES) {
+        const rotated = logPath + ".1";
+        try { fs.unlinkSync(rotated); } catch { /* ignore */ }
+        fs.renameSync(logPath, rotated);
+      }
+    } catch { /* file doesn't exist yet — first write */ }
+    fs.appendFileSync(logPath, JSON.stringify(payload) + "\n", "utf-8");
   } catch (e) {
     log.error("appendEvent failed", { path: resolveEventsLogPath(), error: String(e) });
   }

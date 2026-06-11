@@ -239,6 +239,7 @@ export class AgentMind {
 
     this.thinkingLoop.recordThought(
       this.store,
+      this.agentId,
       `[${action.type}] ${action.prompt.substring(0, 150)}`,
       action.importance,
     );
