@@ -59,7 +59,7 @@ export class AgentMind {
   getThinkingLoop(): ProactiveThinkingLoop {
     return this.thinkingLoop;
   }
-  private embedder: SimpleEmbeddingProvider;
+  private embedder: EmbeddingProvider;
   private searcher: MemorySearcher;
   private scorer: ImportanceScorer;
   private llmProvider: MindLLMProvider | undefined;

@@ -301,7 +301,7 @@ export class SemanticMemoryStore {
         ) AND importance < ?`,
       )
       .run(this.agentId, this.agentId, keepCount, minImportance);
-    return deletedFutureHack.changes;
+    return Number(deletedFutureHack.changes);
   }
 
   close(): void {
