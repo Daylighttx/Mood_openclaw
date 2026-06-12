@@ -82,10 +82,15 @@ do_check() {
   check_dir  "${OPENCLAW_DIR}/dist"
   check_dir  "${OPENCLAW_DIR}/node_modules"
 
-  if systemctl is-active --quiet openclaw-gateway 2>/dev/null; then
-    log "openclaw-gateway 服务运行中"
+  if [[ -f "${OPENCLAW_DIR}/scripts/clawdctl.sh" ]]; then
+    if "${OPENCLAW_DIR}/scripts/clawdctl.sh" status 2>/dev/null | grep -q "运行中"; then
+      log "Gateway 运行中"
+    else
+      warn "Gateway 未运行"
+      ok=false
+    fi
   else
-    warn "openclaw-gateway 服务未运行"
+    warn "clawdctl.sh 缺失 — 无法检查 Gateway 运行状态"
     ok=false
   fi
 
@@ -100,8 +105,14 @@ do_update() {
   download_release
   extract_release
   fix_permissions
-  systemctl restart openclaw-gateway
-  log "更新完成，服务已重启"
+
+  local ctl="${OPENCLAW_DIR}/scripts/clawdctl.sh"
+  if [[ -x "$ctl" ]]; then
+    bash "$ctl" restart
+  else
+    warn "clawdctl.sh 缺失，请手动重启 Gateway"
+  fi
+  log "更新完成"
 }
 
 # ============================================================
@@ -264,48 +275,10 @@ generate_configs() {
 }
 
 # ============================================================
-# 权限 + 服务
+# 权限
 # ============================================================
 fix_permissions() {
   chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "$OPENCLAW_HOME" 2>/dev/null || true
-}
-
-install_service() {
-  local unit="/etc/systemd/system/openclaw-gateway.service"
-  if [[ -f "$unit" ]]; then
-    log "systemd 服务已存在，跳过"
-    return
-  fi
-
-  info "安装 systemd 服务..."
-  cat > "$unit" << UNITEOF
-[Unit]
-Description=Mood_OpenClaw Gateway
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=${DEPLOY_USER}
-WorkingDirectory=${OPENCLAW_DIR}
-Environment=NODE_ENV=production
-Environment=OPENCLAW_HOME=${OPENCLAW_HOME}
-Environment=MIND_LLM_API_KEY=${MIND_LLM_API_KEY}
-Environment=TZ=${TZ}
-ExecStart=/usr/bin/node ${OPENCLAW_DIR}/openclaw.mjs gateway run --port 18789 --allow-unconfigured
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-UNITEOF
-
-  systemctl daemon-reload
-  systemctl enable openclaw-gateway
-  systemctl start openclaw-gateway
-  log "openclaw-gateway 服务已安装并启动"
 }
 
 # ============================================================
@@ -350,23 +323,30 @@ main() {
     log "用户 $DEPLOY_USER 已创建"
   fi
 
-  # 下载 + 解压 + 配置 + 启动
+  # ── 下载 + 解压 + 配置 + 启动 ──
   download_release
   extract_release
   generate_configs
   fix_permissions
-  install_service
+
+  local ctl="${OPENCLAW_DIR}/scripts/clawdctl.sh"
+  if [[ -x "$ctl" ]] || [[ -f "$ctl" ]]; then
+    chmod +x "$ctl" 2>/dev/null || true
+    bash "$ctl" start || warn "Gateway 启动失败，请查看日志"
+  else
+    warn "clawdctl.sh 缺失，请手动启动: cd ${OPENCLAW_DIR} && node openclaw.mjs gateway run --port 18789"
+  fi
 
   echo ""
-  echo -e "${GREEN}╔══════════════════════════════════╗${NC}"
-  echo -e "${GREEN}║  部署完成!                       ║${NC}"
-  echo -e "${GREEN}╠══════════════════════════════════╣${NC}"
-  echo -e "${GREEN}║  查看状态: systemctl status openclaw-gateway${NC}"
-  echo -e "${GREEN}║  查看日志: journalctl -u openclaw-gateway -f${NC}"
-  echo -e "${GREEN}║  情绪事件: tail -f ${MIND_DIR}/events.log${NC}"
-  echo -e "${GREEN}║  配置检查: bash deploy.sh --check${NC}"
-  echo -e "${GREEN}║  代码更新: bash deploy.sh --update${NC}"
-  echo -e "${GREEN}╚══════════════════════════════════╝${NC}"
+  echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║  部署完成!                           ║${NC}"
+  echo -e "${GREEN}╠══════════════════════════════════════╣${NC}"
+  echo -e "${GREEN}║  Gateway: bash scripts/clawdctl.sh start|stop|status|restart|log${NC}"
+  echo -e "${GREEN}║  日志:    tail -f ${OPENCLAW_HOME}/gw.log${NC}"
+  echo -e "${GREEN}║  情绪:    tail -f ${MIND_DIR}/events.log${NC}"
+  echo -e "${GREEN}║  配置:    bash deploy.sh --check${NC}"
+  echo -e "${GREEN}║  更新:    bash deploy.sh --update${NC}"
+  echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
 }
 
 main "$@"
