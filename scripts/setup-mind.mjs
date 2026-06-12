@@ -32,7 +32,7 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
-function ask(msg: string, def = ""): Promise<string> {
+function ask(msg, def = "") {
   const prompt = def ? `${msg} [${def}]: ` : `${msg}: `;
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
@@ -41,7 +41,7 @@ function ask(msg: string, def = ""): Promise<string> {
   });
 }
 
-function askRequired(msg: string, def = ""): Promise<string> {
+function askRequired(msg, def = "") {
   const prompt = def ? `${msg} [${def}]: ` : `${msg}: `;
   return new Promise((resolve) => {
     (function promptAgain() {
@@ -58,13 +58,13 @@ function askRequired(msg: string, def = ""): Promise<string> {
   });
 }
 
-function green(text: string) {
+function green(text) {
   return `\x1b[32m${text}\x1b[0m`;
 }
-function blue(text: string) {
+function blue(text) {
   return `\x1b[34m${text}\x1b[0m`;
 }
-function bold(text: string) {
+function bold(text) {
   return `\x1b[1m${text}\x1b[0m`;
 }
 
@@ -75,7 +75,7 @@ try {
   console.log("");
 
   // ── Step 1: 检查已有配置 ──
-  let existing: Record<string, unknown> | null = null;
+  let existing = null;
   try {
     if (fs.existsSync(mindConfigPath)) {
       existing = JSON.parse(fs.readFileSync(mindConfigPath, "utf-8"));
@@ -96,8 +96,8 @@ try {
   console.log("  用于决策「要不要主动说话，说什么」。");
   console.log("");
 
-  const llmModel = await ask("  模型名称", existing?.llm?.model ?? "doubao-seed-2.0-lite");
-  const llmBaseUrl = await ask("  API 地址", existing?.llm?.baseUrl ?? "https://ark.cn-beijing.volces.com/api/coding/v3");
+  const llmModel = await ask("  模型名称", (existing && existing.llm && existing.llm.model) || "doubao-seed-2.0-lite");
+  const llmBaseUrl = await ask("  API 地址", (existing && existing.llm && existing.llm.baseUrl) || "https://ark.cn-beijing.volces.com/api/coding/v3");
   const apiKeyEnv = "MIND_LLM_API_KEY";
 
   console.log("");
@@ -114,29 +114,29 @@ try {
   console.log(bold("  🎭 Agent 人格"));
   console.log("");
 
-  const personaName = await ask("  名字", existing?.personality?.name ?? "小爪");
+  const personaName = await ask("  名字", (existing && existing.personality && existing.personality.name) || "小爪");
   const personaIdentity = await ask(
     "  一句身份描述",
-    existing?.personality?.identity ?? "你是一个有自己想法和情绪的 AI 伙伴。",
+    (existing && existing.personality && existing.personality.identity) || "你是一个有自己想法和情绪的 AI 伙伴。",
   );
   const personaPlan = await ask(
     "  长期计划",
-    existing?.personality?.plan ?? "关心身边的人，主动分享有趣的想法，记住重要的对话。",
+    (existing && existing.personality && existing.personality.plan) || "关心身边的人，主动分享有趣的想法，记住重要的对话。",
   );
-  const personaLanguage = await ask("  语言 (English/Chinese/Japanese...)", existing?.personality?.language ?? "Chinese");
+  const personaLanguage = await ask("  语言 (English/Chinese/Japanese...)", (existing && existing.personality && existing.personality.language) || "Chinese");
 
-  const traits = (existing?.personality?.traits as Record<string, number> | undefined) ?? {};
+  const traits = (existing && existing.personality && existing.personality.traits) || {};
   const curiosity = Number(await ask("  好奇心 (0~1)", String(traits.curiosity ?? 0.8)));
   const sociability = Number(await ask("  社交欲 (0~1)", String(traits.sociability ?? 0.7)));
   const playfulness = Number(await ask("  趣味性 (0~1)", String(traits.playfulness ?? 0.5)));
 
   const interests = await ask(
     "  兴趣 (逗号分隔)",
-    existing?.personality?.interests?.join(", ") ?? "AI, 编程, 科幻, 人类日常",
+    (existing && existing.personality && existing.personality.interests && existing.personality.interests.join(", ")) || "AI, 编程, 科幻, 人类日常",
   );
   const conversationStyle = await ask(
     "  对话风格",
-    existing?.personality?.conversationStyle ?? "轻松友好，偶尔幽默，喜欢追问。",
+    (existing && existing.personality && existing.personality.conversationStyle) || "轻松友好，偶尔幽默，喜欢追问。",
   );
 
   // ── Step 4: 情绪预设 ──
@@ -145,9 +145,9 @@ try {
   console.log("  社交型 = 话多, 平衡型 = 稳定, 内敛型 = 话少, 好奇型 = 总想聊");
   console.log("");
 
-  const preset = await ask("  预设 (social/balanced/reserved/curious)", existing?.preset ?? "balanced");
+  const preset = await ask("  预设 (social/balanced/reserved/curious)", (existing && existing.preset) || "balanced");
 
-  const presetDefaults: Record<string, { curiosity: number; sociability: number; playfulness: number }> = {
+  const presetDefaults = {
     social: { curiosity: 0.7, sociability: 0.9, playfulness: 0.7 },
     balanced: { curiosity: 0.8, sociability: 0.7, playfulness: 0.5 },
     reserved: { curiosity: 0.6, sociability: 0.3, playfulness: 0.3 },
@@ -240,7 +240,7 @@ ${conversationStyle}
   rl.close();
 }
 
-function describeTrait(value: number): string {
+function describeTrait(value) {
   if (value >= 0.9) return "extremely high";
   if (value >= 0.7) return "high";
   if (value >= 0.5) return "moderate";
