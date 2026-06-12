@@ -147,6 +147,38 @@ extract_release() {
   info "解压到 $OPENCLAW_DIR ..."
   tar -xzf "$RELEASE_TARBALL" -C "$OPENCLAW_DIR/"
   log "解压完成"
+  verify_templates
+}
+
+# ============================================================
+# 验证关键文件完整性
+# ============================================================
+verify_templates() {
+  local ok=true
+  info "验证关键文件..."
+
+  check_file() {
+    if [[ -f "${OPENCLAW_DIR}/$1" ]]; then
+      log "  $1"
+    else
+      warn "  $1 缺失！"
+      ok=false
+    fi
+  }
+
+  check_file "openclaw.mjs"
+  check_file "src/agents/templates/HEARTBEAT.md"
+  check_file "docs/reference/templates/SOUL.md"
+  check_file "docs/reference/templates/IDENTITY.md"
+  check_file "docs/reference/templates/TOOLS.md"
+  check_file "docs/reference/templates/USER.md"
+  check_file "docs/reference/templates/BOOTSTRAP.md"
+  check_file "docs/reference/templates/AGENTS.md"
+
+  if ! $ok; then
+    err "Release 包缺少关键文件。请确认 CI 构建完整，或使用最新 Release。"
+  fi
+  log "所有关键文件验证通过"
 }
 
 # ============================================================

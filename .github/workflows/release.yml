@@ -46,6 +46,7 @@ jobs:
         run: |
           tar -czf openclaw-release.tar.gz \
             dist/ openclaw.mjs scripts/ package.json pnpm-lock.yaml node_modules/ docs/ patches/ config/ \
+            src/agents/templates/ \
             deploy.sh DEPLOY.md FEATURES.md PROJECT_REPORT.md
 
           echo "=== Verifying key deps ==="
@@ -53,6 +54,8 @@ jobs:
           tar -tzf openclaw-release.tar.gz | grep "node_modules/jiti/lib" | head -1 || echo "jiti MISSING"
           echo "=== Verifying template files ==="
           tar -tzf openclaw-release.tar.gz | grep "docs/reference/templates" | head -14 || echo "templates MISSING"
+          echo "=== Verifying runtime templates (src/agents/templates/) ==="
+          tar -tzf openclaw-release.tar.gz | grep "src/agents/templates/HEARTBEAT.md" || echo "HEARTBEAT.md MISSING in release tarball!"
           echo "=== Verifying config templates ==="
           tar -tzf openclaw-release.tar.gz | grep "config/.*\.example" | head -10 || echo "config MISSING"
           echo "=== Verifying patches ==="
