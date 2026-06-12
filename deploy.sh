@@ -42,7 +42,7 @@ info() { echo -e "${BLUE}[..]${NC} $*"; }
 
 # ── 默认值 ──
 GITHUB_REPO="${GITHUB_REPO:-Daylighttx/Mood_openclaw}"
-OPENCLAW_HOME="${OPENCLAW_HOME:-/home/openclaw}"
+OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME}"
 LLM_MODEL="${LLM_MODEL:-doubao-seed-2.0-lite}"
 LLM_BASE_URL="${LLM_BASE_URL:-https://api.openai.com/v1}"
 LLM_PROVIDER="${LLM_PROVIDER:-openai-compatible}"
@@ -51,7 +51,6 @@ PERSONA_NAME="${PERSONA_NAME:-Clawdbot}"
 PERSONA_IDENTITY="${PERSONA_IDENTITY:-You are a thoughtful AI companion with your own moods and memories.}"
 PERSONA_LANGUAGE="${PERSONA_LANGUAGE:-English}"
 GATEWAY_TOKEN="${GATEWAY_TOKEN:-$(openssl rand -hex 32 2>/dev/null || python3 -c 'import secrets;print(secrets.token_hex(32))')}"
-DEPLOY_USER="${DEPLOY_USER:-openclaw}"
 OPENCLAW_DIR="${OPENCLAW_HOME}/.openclaw"
 MIND_DIR="${OPENCLAW_HOME}/.openclaw/mind"
 WORKSPACE_DIR="${OPENCLAW_HOME}/.openclaw/workspace"
@@ -278,7 +277,8 @@ generate_configs() {
 # 权限
 # ============================================================
 fix_permissions() {
-  chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "$OPENCLAW_HOME" 2>/dev/null || true
+  # Deployed as current user — no chown needed.
+  true
 }
 
 # ============================================================
@@ -296,10 +296,6 @@ main() {
   esac
 
   # ── 安装模式: 检查前置条件 ──
-  if [[ "$(id -u)" != "0" ]]; then
-    err "请用 root 运行: sudo bash deploy.sh"
-  fi
-
   if [[ -z "${MIND_LLM_API_KEY:-}" ]]; then
     err "请设置 MIND_LLM_API_KEY 环境变量"
   fi
@@ -316,12 +312,6 @@ main() {
 
   node_version=$(node -v 2>/dev/null || echo "none")
   log "Node.js: $node_version"
-
-  # 创建用户
-  if ! id -u "$DEPLOY_USER" &>/dev/null; then
-    useradd -m -s /bin/bash "$DEPLOY_USER"
-    log "用户 $DEPLOY_USER 已创建"
-  fi
 
   # ── 下载 + 解压 + 配置 + 启动 ──
   download_release

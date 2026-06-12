@@ -12,8 +12,11 @@
 # =============================================================================
 set -euo pipefail
 
-OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME}"
-OPENCLAW_DIR="${OPENCLAW_HOME}/.openclaw"
+# Auto-detect OPENCLAW_HOME from script location (scripts/ → .openclaw/ → OPENCLAW_HOME)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OPENCLAW_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+OPENCLAW_HOME="${OPENCLAW_HOME:-$(cd "${OPENCLAW_DIR}/.." && pwd)}"
+
 PID_FILE="${OPENCLAW_DIR}/gw.pid"
 LOG_FILE="${OPENCLAW_HOME}/gw.log"
 NODE_BIN="$(command -v node || echo node)"
