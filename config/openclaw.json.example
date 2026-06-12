@@ -1,0 +1,72 @@
+{
+  "_comment": "OpenClaw Gateway 配置模板 — 把此文件复制为 openclaw.json 并填入你的值",
+
+  "gateway": {
+    "port": 18789,
+    "auth": {
+      "mode": "token",
+      "token": "${GATEWAY_TOKEN}"
+    },
+    "allowFrom": ["*"]
+  },
+
+  "agents": {
+    "defaults": {
+      "model": {
+        "provider": "${LLM_PROVIDER}",
+        "model": "${LLM_MODEL}"
+      },
+      "workspace": "${OPENCLAW_HOME}/workspace"
+    }
+  },
+
+  "channels": {
+    "_comment": "取消注释并填入你要用的通道。至少启用一个通道。",
+
+    "_telegram_example": {
+      "telegram": {
+        "enabled": true,
+        "botToken": "${TELEGRAM_BOT_TOKEN}",
+        "dmPolicy": "open",
+        "allowFrom": ["*"]
+      }
+    },
+
+    "_discord_example": {
+      "discord": {
+        "enabled": true,
+        "botToken": "${DISCORD_BOT_TOKEN}",
+        "dmPolicy": "open",
+        "allowFrom": ["*"]
+      }
+    },
+
+    "_qq_example": {
+      "qqbot": {
+        "enabled": true,
+        "appId": "${QQ_APP_ID}",
+        "clientSecret": "${QQ_CLIENT_SECRET}",
+        "dmPolicy": "open",
+        "allowFrom": ["*"]
+      }
+    },
+
+    "_whatsapp_example": {
+      "whatsapp": {
+        "enabled": true,
+        "dmPolicy": "open",
+        "allowFrom": ["*"]
+      }
+    }
+  },
+
+  "tools": {
+    "exec": {
+      "bash": { "enabled": true },
+      "process": { "enabled": true },
+      "read": { "enabled": true },
+      "write": { "enabled": true },
+      "edit": { "enabled": true }
+    }
+  }
+}

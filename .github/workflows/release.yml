@@ -45,13 +45,16 @@ jobs:
       - name: Create deploy package
         run: |
           tar -czf openclaw-release.tar.gz \
-            dist/ openclaw.mjs scripts/ package.json pnpm-lock.yaml node_modules/ docs/ patches/
+            dist/ openclaw.mjs scripts/ package.json pnpm-lock.yaml node_modules/ docs/ patches/ config/ \
+            deploy.sh DEPLOY.md FEATURES.md PROJECT_REPORT.md
 
           echo "=== Verifying key deps ==="
           tar -tzf openclaw-release.tar.gz | grep "node_modules/json5/index" | head -1 || echo "json5 MISSING"
           tar -tzf openclaw-release.tar.gz | grep "node_modules/jiti/lib" | head -1 || echo "jiti MISSING"
           echo "=== Verifying template files ==="
           tar -tzf openclaw-release.tar.gz | grep "docs/reference/templates" | head -14 || echo "templates MISSING"
+          echo "=== Verifying config templates ==="
+          tar -tzf openclaw-release.tar.gz | grep "config/.*\.example" | head -10 || echo "config MISSING"
           echo "=== Verifying patches ==="
           tar -tzf openclaw-release.tar.gz | grep "patches/" | head -5 || echo "patches MISSING"
           echo "Package size: $(du -h openclaw-release.tar.gz | cut -f1)"
