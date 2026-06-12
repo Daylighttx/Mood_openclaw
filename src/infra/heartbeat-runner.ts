@@ -146,7 +146,7 @@ import {
   resolveSystemEventDeliveryContext,
   type SystemEvent,
 } from "./system-events.js";
-import { mindOnHeartbeat, bufferProactiveMessage, hasPendingMessage } from "../memory/agent-mind-bridge.js";
+import { mindOnHeartbeat, bufferProactiveMessage, hasPendingMessage, consumePendingMessage } from "../memory/agent-mind-bridge.js";
 
 export type HeartbeatDeps = OutboundSendDeps &
   ChannelHeartbeatDeps & {
@@ -1311,8 +1311,13 @@ export async function runHeartbeatOnce(opts: {
     explicitAgentId || forcedSessionAgentId || resolveDefaultAgentId(cfg),
   );
 
-  // Agent Mind: advance mood/thinking on every heartbeat tick
-  mindOnHeartbeat(agentId).catch(() => {});
+  // Agent Mind: advance mood/thinking on every heartbeat tick.
+  // When the mind decides to send a proactive message, buffer it for delivery.
+  const mindResult = await mindOnHeartbeat(agentId);
+
+  // If a proactive message was buffered by this tick, deliver it through
+  // the default heartbeat delivery path (resolved below).
+  const pendingProactive = consumePendingMessage(agentId);
 
   const heartbeat = resolveHeartbeatForWake({
     cfg,
@@ -1485,6 +1490,39 @@ export async function runHeartbeatOnce(opts: {
         : preflight.turnSourceDeliveryContext,
   });
   const heartbeatAccountId = heartbeat?.accountId?.trim();
+
+  // Agent Mind: deliver any pending proactive message through the resolved heartbeat target.
+  if (pendingProactive && delivery.channel !== "none" && delivery.to) {
+    try {
+      const proactiveSession = buildOutboundSessionContext({ cfg, agentId, sessionKey });
+      const proactiveSend = await sendDurableMessageBatch({
+        cfg,
+        channel: delivery.channel,
+        to: delivery.to,
+        accountId: delivery.accountId,
+        threadId: delivery.threadId,
+        payloads: [{ text: pendingProactive.action.prompt }],
+        session: proactiveSession,
+        deps: opts.deps,
+      });
+      if (proactiveSend.status === "failed") {
+        log.warn("proactive message send failed", {
+          agentId,
+          channel: delivery.channel,
+          error: String(proactiveSend.error ?? "unknown"),
+        });
+      } else {
+        log.info("proactive message sent", {
+          agentId,
+          channel: delivery.channel,
+          promptLen: pendingProactive.action.prompt.length,
+        });
+      }
+    } catch (err) {
+      log.error("proactive message delivery error", { agentId, error: String(err) });
+    }
+  }
+
   if (delivery.reason === "unknown-account") {
     log.warn("heartbeat: unknown accountId", {
       accountId: delivery.accountId ?? heartbeatAccountId ?? null,

@@ -69,6 +69,9 @@ export class AgentMind {
   private conversationCountAtLastRefresh: number = 0;
   private lastPersonalityAdaptAt: number = 0;
   private lastVacuumAt: number = 0;
+  private lastLongTermGoalsUpdate: number = 0;
+  /** File path for persisting mood state across restarts. */
+  private moodStatePath: string;
   /** Serializes tick() and inbound state resets to prevent stale counter writes. */
   private _tickGate: Promise<void> = Promise.resolve();
 
@@ -103,6 +106,21 @@ export class AgentMind {
     };
 
     this.mood = new AgentMood(baselines, config.moodConfig);
+
+    // Restore mood from previous run so the agent doesn't "forget" after restart.
+    const base = process.env.OPENCLAW_HOME ?? process.env.HOME ?? "/tmp";
+    const mindDir = path.join(base, ".openclaw", "mind");
+    this.moodStatePath = path.join(mindDir, `${config.agentId}-mood.json`);
+    try {
+      fs.mkdirSync(mindDir, { recursive: true });
+      if (fs.existsSync(this.moodStatePath)) {
+        const saved = fs.readFileSync(this.moodStatePath, "utf-8");
+        this.mood = AgentMood.deserialize(saved);
+        amLog.info("mood restored from previous run", { agentId: this.agentId });
+      }
+    } catch (err) {
+      amLog.warn("mood restore failed, using fresh mood", { agentId: this.agentId, error: String(err) });
+    }
 
     this.thinkingLoop = new ProactiveThinkingLoop(config.thinkingConfig);
   }
@@ -196,6 +214,12 @@ export class AgentMind {
       this.planner.updateDailyGoals(this.store, this.llmProvider).catch(
         (err) => { amLog.warn("daily goals update failed", { agentId: this.agentId, error: String(err) }); },
       );
+      if (this.llmProvider && now - this.lastLongTermGoalsUpdate > 24 * 60 * 60 * 1000) {
+        this.planner.updateLongTermGoals(this.store, this.llmProvider).catch(
+          (err) => { amLog.warn("long-term goals update failed", { agentId: this.agentId, error: String(err) }); },
+        );
+        this.lastLongTermGoalsUpdate = now;
+      }
     }
 
     if (this.llmProvider && this.shouldRefreshRelationship()) {
@@ -237,11 +261,19 @@ export class AgentMind {
 
     this.thinkingLoop.suppressedCount = 0;
 
+    const thoughtContent = `[${action.type}] ${action.prompt.substring(0, 150)}`;
+    let thoughtEmbedding: number[] | undefined;
+    try {
+      thoughtEmbedding = await this.embedder.embedQuery(thoughtContent);
+    } catch {
+      // best-effort: embedding may fail if API is unavailable
+    }
     this.thinkingLoop.recordThought(
       this.store,
       this.agentId,
-      `[${action.type}] ${action.prompt.substring(0, 150)}`,
+      thoughtContent,
       action.importance,
+      thoughtEmbedding,
     );
 
     amLog.info("tick: action produced", {
@@ -253,8 +285,18 @@ export class AgentMind {
 
     return action;
     } finally {
+      this.saveMoodState();
       this._releaseTickGate?.();
       this._releaseTickGate = null;
+    }
+  }
+
+  /** Persist mood to disk so it survives process restarts. */
+  saveMoodState(): void {
+    try {
+      fs.writeFileSync(this.moodStatePath, this.mood.serialize(), "utf-8");
+    } catch {
+      // best-effort
     }
   }
 

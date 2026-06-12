@@ -322,6 +322,7 @@ Decide: message (only if truly new), reflect, or idle. JSON only:
       }
       thoughtType = "proactive_message";
       importance = 6;
+      this.proactiveToday++;
       this.unansweredProactiveCount++;
       this.lastProactiveSentAt = Date.now();
     } else if (moodState.curiosity > 0.6 && memoryCount > 3) {
@@ -516,13 +517,13 @@ Decide: message (only if truly new), reflect, or idle. JSON only:
     }
   }
 
-  recordThought(store: SemanticMemoryStore, agentId: string, content: string, importance: number): void {
+  recordThought(store: SemanticMemoryStore, agentId: string, content: string, importance: number, embedding?: number[]): void {
     store.insertMemory({
       agentId,
       type: "thought",
       content,
       importance,
-      embedding: [],
+      embedding: embedding ?? [],
     });
     this._lastThoughtContent = content;
   }

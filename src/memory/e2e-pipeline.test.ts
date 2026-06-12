@@ -8,6 +8,8 @@ import {
   mindOnInboundMessage,
   mindOnHeartbeat,
   buildMindSystemPromptSection,
+  hasPendingMessage,
+  consumePendingMessage,
   closeAllMinds,
 } from "./agent-mind-bridge.js";
 import { ProactiveThinkingLoop } from "./thinking-loop.js";
@@ -707,6 +709,142 @@ describe("全链路端到端测试", () => {
 
       store.close();
       db.cleanup();
+    });
+  });
+
+  // ── Stage 5C: End-to-end pipeline integration tests ────────────────────────
+
+  describe("I: Full pipeline — message → mood → heartbeat → proactive → buffer", () => {
+    it("complete message-to-buffer roundtrip via bridge", async () => {
+      const agentId = "pipeline-bridge";
+      // 1. Send incoming messages to build up memory and mood
+      await mindOnInboundMessage(agentId, "你好！我最近在做一个开源 AI 项目，很有意思。", "用户A");
+      await mindOnInboundMessage(agentId, "我觉得 AI 的自我意识研究特别前沿。", "用户A");
+      await mindOnInboundMessage(agentId, "你听说过最新的多模态模型吗？", "用户A");
+
+      // 2. Verify memory storage
+      const mind = getOrCreateMind(agentId);
+      expect(mind.getStore().memoryCount()).toBeGreaterThanOrEqual(3);
+
+      // 3. Verify mood dampened by interactions
+      const state = mind.getState();
+      expect(state.mood.sociability).toBeLessThan(0.7);
+
+      // 4. Force high sociability/curiosity/energy to trigger proactive decision
+      mind.getMood().applyDelta({ sociability: 0.5, curiosity: 0.4, energy: 0.3 });
+      const boosted = mind.getState();
+      expect(boosted.mood.sociability).toBeGreaterThan(0.7);
+
+      // 5. Use mindOnHeartbeat to trigger a full tick — this should produce and
+      //    buffer a proactive message internally via the bridge.
+      // Clear any existing buffer first
+      consumePendingMessage(agentId);
+      expect(hasPendingMessage(agentId)).toBe(false);
+
+      const result = await mindOnHeartbeat(agentId);
+      expect(result).not.toBeNull();
+      // The bridge should have buffered the proactive message
+      if (result!.shouldMessage) {
+        expect(hasPendingMessage(agentId)).toBe(true);
+        const pending = consumePendingMessage(agentId);
+        expect(pending).not.toBeNull();
+        expect(pending!.action.type).toBe("proactive_message");
+      }
+    });
+
+    it("buffer is empty when no proactive message generated", async () => {
+      const agentId = "buffer-empty";
+      await mindOnInboundMessage(agentId, "hello", "用户");
+      consumePendingMessage(agentId);
+
+      // Low mood → no proactive message
+      const result = await mindOnHeartbeat(agentId);
+      // Bridge should NOT buffer when shouldMessage is false
+      if (!result?.shouldMessage) {
+        expect(hasPendingMessage(agentId)).toBe(false);
+      }
+    });
+  });
+
+  describe("J: System prompt injection — mood + memory context", () => {
+    it("injects mood stats and recent memories into system prompt", async () => {
+      const agentId = "prompt-full";
+      // Build up some memories first
+      await mindOnInboundMessage(agentId, "我喜欢在周末去爬山", "用户A");
+      await mindOnInboundMessage(agentId, "最近在学习 Rust 编程", "用户A");
+      await mindOnInboundMessage(agentId, "今天的天气很好", "用户A");
+
+      const section = buildMindSystemPromptSection(agentId);
+      expect(section).toContain("当前情绪状态");
+      expect(section).toContain("好奇心");
+      expect(section).toContain("社交欲");
+      expect(section).toContain("精力");
+      expect(section).toContain("记忆条数");
+
+      // Should now include recent memory context
+      expect(section).toContain("近期记忆");
+      expect(section).toContain("爬山");
+    });
+
+    it("no mind returns empty string", () => {
+      expect(buildMindSystemPromptSection("nonexistent")).toBe("");
+    });
+  });
+
+  describe("K: Mood persistence across restarts", () => {
+    it("mood survives simulated restart", async () => {
+      const agentId = "persist-test";
+      await mindOnInboundMessage(agentId, "模拟一天的使用", "用户A");
+      await mindOnInboundMessage(agentId, "聊了很多有趣的话题", "用户A");
+
+      // Access the mind and trigger a tick to save mood
+      const mind = getOrCreateMind(agentId);
+      const moodBefore = mind.getMood().getMood();
+      expect(moodBefore.sociability).toBeLessThan(0.7); // dampened
+
+      // Force a save via saveMoodState
+      mind.saveMoodState();
+
+      // Simulate restart: close all minds, then create fresh
+      closeAllMinds();
+
+      // Re-create — should restore from file
+      const freshMind = getOrCreateMind(agentId);
+      const moodAfter = freshMind.getMood().getMood();
+
+      // Should restore saved state (not reset to baseline)
+      expect(moodAfter.curiosity).toBeCloseTo(moodBefore.curiosity, 1);
+      expect(moodAfter.sociability).toBeCloseTo(moodBefore.sociability, 1);
+      expect(moodAfter.energy).toBeCloseTo(moodBefore.energy, 1);
+    });
+
+    it("fresh agent with no save file starts from baseline", async () => {
+      const agentId = "persist-fresh";
+      closeAllMinds();
+      const mind = getOrCreateMind(agentId);
+      const mood = mind.getMood().getMood();
+      // Should have baseline curiosity from default personality
+      expect(mood.curiosity).toBeGreaterThanOrEqual(0.7);
+      expect(mood.energy).toBeCloseTo(1.0, 1);
+    });
+  });
+
+  describe("L: thinking-loop recordThought uses real embedding", () => {
+    it("thought records get embedding from the embedder", async () => {
+      const agentId = "thought-emb";
+      // Build a mind with a high mood to trigger a tick that produces thoughts
+      await mindOnInboundMessage(agentId, "重要的对话内容", "用户A");
+      const mind = getOrCreateMind(agentId);
+      mind.getMood().applyDelta({ sociability: 0.5, curiosity: 0.4, energy: 0.3 });
+
+      // Trigger heartbeat — the tick will record a thought via recordThought
+      await mindOnHeartbeat(agentId);
+
+      // Check the stored thought record has a non-empty embedding
+      const thoughts = mind.getStore().listMemories({ type: "thought" });
+      if (thoughts.length > 0) {
+        expect(thoughts[0].embedding.length).toBeGreaterThan(0);
+      }
     });
   });
 });

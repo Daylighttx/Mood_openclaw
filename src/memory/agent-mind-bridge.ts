@@ -289,6 +289,8 @@ export async function mindOnHeartbeat(agentId: string): Promise<{
       if (action.prompt) {
         mind.getThinkingLoop().recordProactiveContent?.(action.prompt.slice(0, 200));
       }
+      // Buffer the message for the heartbeat runner to pick up and deliver.
+      bufferProactiveMessage(agentId, action);
     }
 
     try {
@@ -363,6 +365,21 @@ export function buildMindSystemPromptSection(agentId: string): string {
   lines.push(`- 精力: ${state.mood.energy.toFixed(2)}`);
   lines.push(`- 记忆条数: ${state.memoryCount}`);
   lines.push("");
+
+  // Include a few recent important memories for context.
+  try {
+    const recentMems = mind.getStore().listMemories({ limit: 5 });
+    if (recentMems.length > 0) {
+      lines.push("## 近期记忆");
+      for (const mem of recentMems) {
+        const ts = new Date(mem.createdAt).toLocaleDateString("zh-CN");
+        lines.push(`- [${ts}] ${mem.content.substring(0, 120)}`);
+      }
+      lines.push("");
+    }
+  } catch {
+    // store access is best-effort
+  }
 
   if (state.shouldMessage) {
     lines.push("## 内在冲动");
