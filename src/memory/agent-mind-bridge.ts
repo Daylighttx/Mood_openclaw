@@ -32,6 +32,10 @@ interface PendingEntry {
 const PENDING_BUFFER = new Map<string, PendingEntry>();
 const PENDING_EXPIRY_MS = 5 * 60 * 1000;
 
+/** Tracks how many conversation memories have been recorded since the last summary. */
+const CONVERSATION_COUNTS = new Map<string, number>();
+const CONVERSATION_SUMMARY_THRESHOLD = 10;
+
 export function bufferProactiveMessage(agentId: string, action: ThoughtAction): void {
   PENDING_BUFFER.set(agentId, { action, bufferedAt: Date.now() });
 }
@@ -237,6 +241,21 @@ export async function mindOnInboundMessage(
     mind.markRelationshipActive();
     mind.markPersonalityActive();
     const state = mind.getState();
+
+    // Periodically summarize recent conversations as they accumulate.
+    const count = (CONVERSATION_COUNTS.get(agentId) ?? 0) + 1;
+    CONVERSATION_COUNTS.set(agentId, count);
+    if (count >= CONVERSATION_SUMMARY_THRESHOLD) {
+      CONVERSATION_COUNTS.set(agentId, 0);
+      const recentConvos = mind.getStore().listMemories({ type: "conversation", limit: 15 });
+      if (recentConvos.length >= 3) {
+        const history = recentConvos.map((m) => m.content);
+        mindOnConversationEnd(agentId, history, senderName ? [senderName] : []).catch(
+          (err) => { log.warn("conversation end summary failed", { agentId, error: String(err) }); },
+        );
+      }
+    }
+
     appendEvent({
       event: "inbound_stored",
       agentId,
@@ -479,6 +498,8 @@ export function closeAllMinds(): void {
     } catch {}
     ACTIVE_MINDS.delete(id);
   }
+  CONVERSATION_COUNTS.clear();
+  PENDING_BUFFER.clear();
 }
 
 export { readEventsLog, clearEventsLog };
